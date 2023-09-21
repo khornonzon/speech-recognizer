@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchsummary import summary
 import torch
-from LibriDataset import LibriDataset
+from LibriDatasetEng import LibriDatasetEng
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import librosa
@@ -10,9 +10,9 @@ import torch
 import torchaudio
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 torch.cuda.empty_cache()
-alphabet =  ' абвгдеёжзийклмнопрстуфхцчшщьыъэюя'
+alphabet =  ' abcdefghijklmnopqrstuvwxyz\'-'
 
-
+print(len(alphabet))
 train_audio_transforms = nn.Sequential(
     torchaudio.transforms.MelSpectrogram(sample_rate=16000),
     torchaudio.transforms.FrequencyMasking(freq_mask_param=15),
@@ -40,6 +40,13 @@ class ConvModule(nn.Module):
         x = self.dropout(x)
         x = self.relu(x)
         return x
+    
+import torch
+import torch.nn as nn
+from torch.nn import functional as F
+
+
+
 class Network(nn.Module):
     def __init__(self):
         super(Network, self).__init__()
@@ -51,7 +58,7 @@ class Network(nn.Module):
         self.lin1 = LinearModule(120, 128)
         self.lin2 = LinearModule(128, 128)
         self.lstm = nn.LSTM(128, 10, 10)
-        self.lin3 = LinearModule(128, 35)
+        self.lin3 = LinearModule(128, 30)
         self.logsoftmax = nn.LogSoftmax(2)
     def forward(self, x):
         x = self.lin0(x)
@@ -63,23 +70,22 @@ class Network(nn.Module):
         sizes = x.size()
         x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])
         x = self.lin1(x)
-        x = self.lin2(x)
         # x = x.unsqueeze(1)
         # h0 = torch.zeros(10, 63744, 10).to(device)
         # c0 = torch.zeros(10, 63744, 10).to(device)
         # x, a= self.lstm(x, (h0,c0))
-        # x = x.squeeze()
         x = self.lin3(x)
         x = self.logsoftmax(x)
         return x
     
 class SpeechRecognizer:
     def __init__(self):
-        wds_train = LibriDataset()
+        wds_train = LibriDatasetEng()
         self.wds_dl = DataLoader(wds_train, batch_size=1, shuffle=True)
-        self.model =  Network().to(device)
+        self.model = Network().to(device)
+
         # summary(self.model, (3000,128))
-        self.loss_fn = torch.nn.CTCLoss(blank=34)
+        self.loss_fn = torch.nn.CTCLoss(blank=29)
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-3)
     def train_one_epoch(self, epoch_index):
      epoch_losses = []
@@ -94,6 +100,7 @@ class SpeechRecognizer:
         loss.backward()
         self.optimizer.step()
         epoch_losses.append(loss.item())
+        print(loss.item())
      return np.mean(epoch_losses)
     
     def train(self, epochs):
@@ -113,7 +120,7 @@ class SpeechRecognizer:
         out = out.squeeze()
         result=''
         for i in out:
-            if torch.argmax(i) == 34:
+            if torch.argmax(i) == 30:
                 result+='%'
             else:
                 result+=alphabet[torch.argmax(i)]

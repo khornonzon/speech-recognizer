@@ -12,9 +12,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 train_audio_transforms = nn.Sequential(
-    torchaudio.transforms.MelSpectrogram(sample_rate=16000, n_mels=128)
-#     torchaudio.transforms.FrequencyMasking(freq_mask_param=15),
-#     torchaudio.transforms.TimeMasking(time_mask_param=35)
+    torchaudio.transforms.MelSpectrogram(sample_rate=16000, n_mels=128),
+    torchaudio.transforms.FrequencyMasking(freq_mask_param=15),
+    torchaudio.transforms.TimeMasking(time_mask_param=35)
 )
 class LibriDataset(Dataset):
     def __init__(self, path_json='dataset\\train\manifest.json'):
@@ -25,7 +25,7 @@ class LibriDataset(Dataset):
         self.input_lengths = []
         self.label_lengths = []
         self.alphabet =  ' абвгдеёжзийклмнопрстуфхцчшщьыъэюя'
-        self.slice = 1000
+        self.slice = 500
         print(len(self.alphabet))
         for s in file:
             json_object = json.loads(s)
