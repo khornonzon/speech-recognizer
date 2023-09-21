@@ -33,19 +33,30 @@ class Network(nn.Module):
     def __init__(self):
         super(Network, self).__init__()
         self.conv1 = nn.Conv2d(1,32, 3)
-        self.lin1 = LinearModule(128, 512)
+        self.conv2 = nn.Conv2d(32,32,3)
+        self.conv3 = nn.Conv2d(32,32,3)
+        self.conv4 = nn.Conv2d(32,32,3)
+        self.conv5 = nn.Conv2d(32,1,3)
+        self.lin1 = LinearModule(118, 512)
         self.lin2 = LinearModule(512, 512)
         self.lstm = nn.LSTM(512, 10, 10)
         self.lin3 = LinearModule(512, 35)
         self.logsoftmax = nn.LogSoftmax(2)
     def forward(self, x):
-        # x = x.unsqueeze(1)
-        # x = self.conv1(x)
+        x = x.unsqueeze(1)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.conv5(x)
+        x = x.squeeze()
         x = self.lin1(x)
         x = self.lin2(x)
-        # h0 = torch.randn(10, 3000, 10).to(device)
-        # c0 = torch.randn(10, 3000, 10).to(device)
+        # x = x.unsqueeze(1)
+        # h0 = torch.zeros(10, 2990, 10).to(device)
+        # c0 = torch.zeros(10, 2990, 10).to(device)
         # x, a= self.lstm(x, (h0,c0))
+        x = x.squeeze()
         x = self.lin3(x)
         x = self.logsoftmax(x)
         return x
@@ -53,18 +64,10 @@ class Network(nn.Module):
 class SpeechRecognizer:
     def __init__(self):
         wds_train = LibriDataset()
-        self.wds_dl = DataLoader(wds_train, batch_size=32, shuffle=True)
+        self.wds_dl = DataLoader(wds_train, batch_size=5, shuffle=True)
         self.model =  Network().to(device)
         self.loss_fn = torch.nn.CTCLoss(blank=34)
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-3)
-
-    def accuracy(self, outs, labels):
-             result = 0
-             for i in range(len(outs)):
-                if (outs[i] > 0.5) == labels[i]:
-                    result+=1
-             return result/len(outs)
-    
     def train_one_epoch(self, epoch_index):
      epoch_losses = []
      for i, data in enumerate(self.wds_dl):
