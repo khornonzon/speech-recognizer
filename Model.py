@@ -4,7 +4,33 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from DownloadDataset import LibriDataset
+import pickle
+from EvaluationFuncs import cer, wer
+
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+def int_to_text(tsequence):
+    alphabet =  ' абвгдеёжзийклмнопрстуфхцчшщьыъэюя'
+    result = ''
+    for i in tsequence:
+        result+=alphabet[i]
+    return result
+
+def GreedyDecoder(output, labels, label_lengths, blank_label=34, collapse_repeated=True):
+    arg_maxes = torch.argmax(output, dim=2)
+    decodes = []
+    targets = []
+    for i, args in enumerate(arg_maxes):
+        targets.append(int_to_text(labels[i].int().tolist()[:label_lengths[i]]))
+        decode = []
+        for j, index in enumerate(args):
+            if index!=blank_label:
+                if collapse_repeated and j != 0 and index == args[j -1]:
+                    continue
+                decode.append(index.item())
+        decodes.append(int_to_text(decode))
+    return decodes, targets
 
 class CNNLayerNorm(nn.Module):
     def __init__(self, n_feats):
@@ -59,6 +85,22 @@ class BidirectionalGRU(nn.Module):
         x = self.dropout(x)
         return x
 
+class LSTM(nn.Module):
+    def __init__(self, rnn_dim, hidden_size, dropout, batch_first):
+        super(LSTM, self).__init__()
+
+        self.lstm = nn.LSTM(
+            input_size=rnn_dim, hidden_size=hidden_size,
+            num_layers=1, batch_first=batch_first, bidirectional=True)
+        self.layer_norm = nn.LayerNorm(rnn_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        x = self.layer_norm(x)
+        x = F.gelu(x)
+        x, _ = self.lstm(x)
+        x = self.dropout(x)
+        return x
 
 
 class SpeechRecognitionModel(nn.Module):
@@ -73,8 +115,8 @@ class SpeechRecognitionModel(nn.Module):
             for _ in range(n_cnn_layers)
         ])
         self.fully_connected = nn.Linear(n_feats*32, rnn_dim)
-        self.birnn_layers = nn.Sequential(*[
-            BidirectionalGRU(rnn_dim=rnn_dim if i==0 else rnn_dim*2,
+        self.lstm_layers = nn.Sequential(*[
+            LSTM(rnn_dim=rnn_dim if i==0 else rnn_dim*2,
                              hidden_size=rnn_dim, dropout=dropout, batch_first=i==0)
             for i in range(n_rnn_layers)
         ])
@@ -92,25 +134,16 @@ class SpeechRecognitionModel(nn.Module):
         x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # (batch, feature, time)
         x = x.transpose(1, 2) # (batch, time, feature)
         x = self.fully_connected(x)
-        x = self.birnn_layers(x)
+        x = self.lstm_layers(x)
         x = self.classifier(x)
-        return x
-
-class LinearModule(nn.Module):
-    def __init__(self, input_size, output_size):
-        super(LinearModule, self).__init__()
-        self.lin = nn.Linear(input_size,output_size)
-        self.relu = nn.ReLU()
-    def forward(self,x):
-        x = self.lin(x)
-        x = self.relu(x)
         return x
     
 
 class SpeechRecognizer:
     def __init__(self):
-        wds_train = LibriDataset()
-        self.wds_dl = DataLoader(dataset=wds_train, batch_size=10, shuffle=True)
+        # wds_train = LibriDataset(30000, 'train')
+        # self.wds_dl = DataLoader(dataset=wds_train, batch_size=10, shuffle=True)
+        # self.test_dataloader = DataLoader(dataset = LibriDataset('test'), batch_size=10, shuffle=False)
         self.model =  SpeechRecognitionModel(3,5,512,35,128).to(device)
         # summary(self.model, (3000,128))
         self.loss_fn = torch.nn.CTCLoss(blank=34).to(device)
@@ -140,9 +173,39 @@ class SpeechRecognizer:
         return np.mean(epoch_losses)
     
     def train(self, epochs):
+        wds_train = LibriDataset(30000, 'train')
+        self.wds_dl = DataLoader(dataset=wds_train, batch_size=10, shuffle=True)
         for i in range(epochs):
             print(f'{i} epoch')
             loss = self.train_one_epoch(i)
             print(loss)
+
+    def test(self):
+        self.test_dataloader = DataLoader(dataset = LibriDataset(300, 'test'), batch_size=10, shuffle=False)
+        test_loss = 0
+        test_cer, test_wer = [], []
+        with torch.no_grad():
+            for i, data in enumerate(self.test_dataloader):
+                specs, labels, input_lengths, label_lengths = data
+                outputs = self.model(specs)
+                outputs = F.log_softmax(outputs, dim=2)
+                outputs = outputs.transpose(0, 1) # (time, batch, n_class)
+                loss = self.loss_fn(outputs, labels, input_lengths, label_lengths)
+                test_loss += loss.item() / len(self.test_dataloader)
+                preds, targets = GreedyDecoder(outputs.transpose(0,1), labels, label_lengths)
+                print(preds, targets)
+                for j in range(len(preds)):
+                    test_cer.append(cer(targets[j], preds[j]))
+                    test_wer.append(wer(targets[j], preds[j]))
+        avg_cer = np.mean(test_cer)
+        avg_wer = np.mean(test_wer)
+        print('Test set: Average loss: {:.4f}, Average CER: {:4f} Average WER: {:.4f}\n'.format(test_loss, avg_cer, avg_wer))
+    def save_model(self):
+        torch.save(self.model, 'trained_model.pt')
+    def load_model(self, path='trained_model.pt'):
+        self.model = torch.load('trained_model.pt')
+
 sr = SpeechRecognizer()
-sr.train(10)
+sr.train(100)
+sr.save_model()
+sr.test()
