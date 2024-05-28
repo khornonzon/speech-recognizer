@@ -1,3 +1,5 @@
 test/
 train/
 __pycache__/
+trained_model.pt
+output.wav

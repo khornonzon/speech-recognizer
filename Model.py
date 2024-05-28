@@ -205,7 +205,7 @@ class SpeechRecognizer:
     def load_model(self, path='trained_model.pt'):
         self.model = torch.load('trained_model.pt')
 
-sr = SpeechRecognizer()
-sr.train(100)
-sr.save_model()
-sr.test()
+# sr = SpeechRecognizer()
+# sr.train(100)
+# sr.save_model()
+# sr.test()
